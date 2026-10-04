@@ -69,8 +69,12 @@ em{color:var(--bad);font-style:normal;font-size:12px;display:block}
 .btn{width:100%;padding:13px;border:0;border-radius:12px;background:var(--pri);color:#fff;font-weight:600;font-size:15px;font-family:inherit;cursor:pointer;transition:transform .1s}.btn:disabled{opacity:.6}
 [data-t=dark] .chip.on,[data-t=dark] .btn,[data-t=dark] .logo{color:#0a111f}
 /* ===== Gráficos e cofrinhos ===== */
-.gf{width:100%;height:auto;display:block}.gf text{font-size:9px;fill:var(--mut)}
-.bc{cursor:pointer;opacity:.5;transition:opacity .2s}.bc.on,.bc:hover{opacity:1}.bc.on text{fill:var(--tx);font-weight:700}
+.gw{position:relative}.gf{width:100%;height:auto;display:block;stroke:none}
+.gf line{stroke:var(--bd);stroke-width:1}.gf text{fill:var(--mut);font-size:9px;stroke:none}
+.bc{cursor:pointer}.bc .b{transition:opacity .2s}.hs .bc .b{opacity:.5}.hs .bc.on .b,.hs .bc:hover .b{opacity:1}.bc.on text{fill:var(--tx);font-weight:700}
+.b.a{transform-box:fill-box;transform-origin:bottom;animation:gr .6s cubic-bezier(.2,.8,.2,1) both}@keyframes gr{from{transform:scaleY(0)}}
+.tip{position:absolute;left:0;top:0;opacity:0;pointer-events:none;background:var(--tx);color:var(--bg);padding:8px 10px;border-radius:10px;font-size:12px;line-height:1.5;white-space:nowrap;box-shadow:0 6px 18px rgba(0,0,0,.25);transition:opacity .15s;z-index:2}
+@media(min-width:600px){.gf text{font-size:7px}}
 .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px}
 .cf{padding:0}.cfh{display:flex;justify-content:space-between;align-items:center;gap:12px;width:100%;padding:14px 16px;border:0;background:none;color:var(--tx);font:inherit;text-align:left;cursor:pointer}
 .cf>:not(.cfh){margin-left:16px;margin-right:16px}.cf>:last-child{margin-bottom:14px}.chip:disabled{opacity:.35}
@@ -158,7 +162,7 @@ function modelo(d){
 }
 
 /* ===== Estado ===== */
-const S={cfg:Store.get("fin_cfg"),M:Store.get("fin_cache"),tab:"resumo",mes:Store.get("fin_mes")??new Date().getMonth(),q:"",sit:"todas",cf:null,cfm:null,loading:false,sair:false};
+const S={cfg:Store.get("fin_cfg"),M:Store.get("fin_cache"),tab:"resumo",mes:Store.get("fin_mes")??new Date().getMonth(),q:"",sit:"todas",cf:null,cfm:null,an:1,loading:false,sair:false};
 if(S.M&&!S.M.rem)S.M=null; // cache antigo sem o novo formato
 
 /* ===== Componentes de visualização ===== */
@@ -170,11 +174,27 @@ const stat=(t,v,i,c)=>`<div class="card stat"><span class="${c}">${ic(i)}</span>
 
 const pc=(a,b)=>b?(a/b*100).toFixed(1).replace(".",",")+"%":"—";
 const rm=k=>{const R=S.M.rem,b=R.bruta[k],d=R.desc[k];return{b,d,l:b-d}}; // bruta, descontos, líquida
-/* Gráfico de barras empilhadas em SVG. segs[k]=[[valor,"--cor"],...]; tocar numa barra dispara a ação "act" com o índice do mês */
-function grafico(segs,sel,act="mes"){
-  const mx=Math.max(1,...segs.map(s=>s.reduce((a,x)=>a+x[0],0)));
-  return `<svg viewBox="0 0 360 170" class="gf" role="img" aria-label="Gráfico por mês">`+segs.map((sg,k)=>{let y=140;
-    return `<g data-act="${act}" data-v="${k}" class="bc ${k===sel?"on":""}"><rect x="${k*30}" y="0" width="30" height="170" fill="transparent"/>`+sg.map(([v,c])=>{const h=v/mx*120;y-=h;return `<rect x="${k*30+6}" y="${y}" width="18" height="${h}" rx="3" fill="var(${c})"/>`}).join("")+`<text x="${k*30+15}" y="160" text-anchor="middle">${MESES[k].slice(0,3)}</text></g>`}).join("")+"</svg>";
+/* Gráfico de barras empilhadas (SVG) com eixo, grade, animação de entrada e tooltip.
+   segs[k]=[[valor,"--cor"],...] por mês; nomes = rótulo de cada segmento; tocar numa barra dispara a ação "act" */
+function grafico(segs,sel,act,nomes=[]){
+  const mx=Math.max(1,...segs.map(s=>s.reduce((a,x)=>a+x[0],0))),X0=34,W=322,sl=W/12,H=150,B=160;
+  const kk=v=>v>=1000?(v/1000).toFixed(v>=10000?0:1).replace(".",",")+"k":String(Math.round(v));
+  const grade=[0,.5,1].map(f=>`<line x1="${X0}" x2="${X0+W}" y1="${B-H*f}" y2="${B-H*f}"/><text x="${X0-6}" y="${B-H*f+3}" text-anchor="end">${kk(mx*f)}</text>`).join("");
+  const barras=segs.map((sg,k)=>{
+    let y=B;const tot=sg.reduce((a,x)=>a+x[0],0),x=X0+k*sl;
+    const dica=`<b>${MESES[k]}</b>`+sg.map(([v,c],j)=>`<div><i class="dot" style="background:var(${c})"></i>${nomes[j]||""}: <b>${brl(v)}</b></div>`).join("")+(sg.length>1?`<div>Total: <b>${brl(tot)}</b></div>`:"");
+    return `<g class="bc ${k===sel?"on":""}" data-act="${act}" data-v="${k}" data-tip="${esc(dica)}" data-cx="${x+sl/2}" data-cy="${B-tot/mx*H}"><rect x="${x}" y="0" width="${sl}" height="${B+22}" fill="transparent"/>`
+      +sg.map(([v,c],j)=>{const h=v/mx*H;y-=h;return `<rect class="b ${S.an?"a":""}" style="animation-delay:${k*35}ms" x="${x+(sl-16)/2}" y="${y}" width="16" height="${h}" rx="3" fill="var(${c})"/>`}).join("")
+      +`<text x="${x+sl/2}" y="177" text-anchor="middle">${MESES[k].slice(0,3)}</text></g>`}).join("");
+  return `<div class="gw"><svg viewBox="0 0 360 184" class="gf ${sel!=null?"hs":""}" role="img" aria-label="Gráfico por mês">${grade}${barras}</svg><div class="tip"></div></div>`;
+}
+/* Posiciona o tooltip acima da barra (usa as coordenadas do SVG, não o DOM, por causa da animação) */
+function mostrarDica(w,g){
+  const t=w.querySelector(".tip");if(!g){t.style.opacity=0;return}
+  t.innerHTML=g.dataset.tip;t.style.opacity=1;
+  const k=w.querySelector("svg").getBoundingClientRect().width/360,tw=t.offsetWidth;
+  t.style.left=Math.min(Math.max(g.dataset.cx*k-tw/2,0),w.clientWidth-tw)+"px";
+  t.style.top=Math.max(0,g.dataset.cy*k-t.offsetHeight-8)+"px";
 }
 function vResumo(){
   const a=S.M.desp.filter(x=>x.mes===up(MESES[S.mes])),tot=soma(a),pg=soma(a.filter(pago)),{b,d,l}=rm(S.mes),saldo=l-tot,uso=l?tot/l*100:0;
@@ -190,11 +210,11 @@ function vRec(){
   const k=S.mes,R=S.M.rem,{b,d,l}=rm(k),sm=a=>a.reduce((x,y)=>x+y,0),inv=R.inv,bb=sm(R.bruta),dd=sm(R.desc);
   const it=Object.entries(R.itens).map(([n,v])=>[n.charAt(0)+n.slice(1).toLowerCase(),v[k]]).filter(x=>x[1]>0).sort((x,y)=>y[1]-x[1]);
   return `<section class="grid">${stat("Receita bruta",brl(b),"up","ok")}${stat("Descontos (INSS, IR, Cont.)",brl(d),"out","bad")}</section>
-  <div class="card"><h3>Receita por mês</h3>${grafico(MESES.map((_,i)=>[[R.bruta[i]-R.desc[i],"--pri"],[R.desc[i],"--bad"]]),k)}
+  <div class="card"><h3>Receita por mês</h3>${grafico(MESES.map((_,i)=>[[R.bruta[i]-R.desc[i],"--pri"],[R.desc[i],"--bad"]]),k,"mes",["Líquida","Descontos"])}
   <div class="split"><span><i class="dot" style="background:var(--pri)"></i>Líquida <b>${brl(l)}</b></span><span><i class="dot" style="background:var(--bad)"></i>Descontos <b>${brl(d)}</b></span></div><p class="mut cnt">Toque em um mês para ver os detalhes.</p></div>
   <div class="card"><h3>Receita bruta de ${MESES[k]} por origem</h3>${bars(it,b)}</div>
   <div class="card"><h3>Total no ano</h3><div class="li"><span>Receita bruta</span><b>${brl(bb)}</b></div><div class="li"><span>Descontos</span><b class="bad">${brl(dd)}</b></div><div class="li"><span>Receita líquida</span><b class="ok">${brl(bb-dd)}</b></div></div>
-  <div class="card"><h3>Investimento pessoal (controle de depósitos)</h3>${sm(inv)?grafico(inv.map(v=>[[v,"--ok"]]),k)+`<div class="split"><span>${MESES[k]} <b>${brl(inv[k])}</b></span><span>No ano <b>${brl(sm(inv))}</b></span></div><div class="split"><span>${pc(inv[k],l)} da receita líquida do mês</span><span>${pc(sm(inv),bb-dd)} no ano</span></div>`:'<p class="mut">Nenhum valor lançado ainda.</p>'}</div>`;
+  <div class="card"><h3>Investimento pessoal (controle de depósitos)</h3>${sm(inv)?grafico(inv.map(v=>[[v,"--ok"]]),k,"mes",["Investido"])+`<div class="split"><span>${MESES[k]} <b>${brl(inv[k])}</b></span><span>No ano <b>${brl(sm(inv))}</b></span></div><div class="split"><span>${pc(inv[k],l)} da receita líquida do mês</span><span>${pc(sm(inv),bb-dd)} no ano</span></div>`:'<p class="mut">Nenhum valor lançado ainda.</p>'}</div>`;
 }
 function vDesp(){
   return `<div class="srch">${ic("search",18)}<input id="q" type="search" placeholder="Buscar por descrição ou grupo" value="${esc(S.q)}" autocomplete="off"></div>
@@ -214,7 +234,7 @@ function vCof(){
     const det=S.cfm==null?'<p class="mut cnt">Toque em um mês para ver os detalhes.</p>':mine.filter(x=>x.mes===mk(S.cfm)).map(x=>`<div class="li"><div><b>${MESES[S.cfm]}</b><small>${esc(x.sit||"Sem situação")}${x.obs?" · "+esc(x.obs):""}</small></div><div class="r"><b>${brl(x.valor)}</b><small>${pc(x.valor,v)} do cofrinho</small></div></div>`).join("")||'<p class="mut cnt">Sem depósito neste mês.</p>';
     return `<div class="card cf"><button class="cfh" data-act="cf" data-v="${esc(n)}" aria-expanded="${abre}"><div><b>${esc(n)}</b><small>${pc(v,tot)} do total · ${mine.length} depósito(s)</small></div><b>${brl(v)}</b></button>${abre?`<div class="chips">${chips}</div>${det}`:""}</div>`}).join("");
   return `<section class="grid">${stat("Total no ano",brl(tot),"coins","ok")}${stat("Média por mês",brl(meses?tot/meses:0),"up","ok")}${stat("Cofrinhos",nomes.length,"dash","ok")}${stat("Maior cofrinho",nomes[0]?esc(nomes[0][0]):"—","receipt","ok")}</section>
-  <div class="card"><h3>Depósitos por mês</h3>${grafico(MESES.map((m,i)=>[[soma(C.filter(x=>x.mes===mk(i))),"--pri"]]),S.cfm,"cfm")}<p class="mut cnt">Toque em um mês para ver os depósitos dele.</p></div>${doMes}
+  <div class="card"><h3>Depósitos por mês</h3>${grafico(MESES.map((m,i)=>[[soma(C.filter(x=>x.mes===mk(i))),"--pri"]]),S.cfm,"cfm",["Depositado"])}<p class="mut cnt">Toque em um mês para ver os depósitos dele.</p></div>${doMes}
   <h3>Cofrinhos — toque no nome para ver os meses</h3>${lista||'<p class="mut">Nenhum depósito encontrado.</p>'}`;
 }
 
@@ -233,6 +253,7 @@ function draw(){
   <main class="fade">${corpo}</main>
   <nav class="nav">${[["resumo","Resumo","dash"],["rec","Receitas","up"],["desp","Despesas","receipt"],["cof","Cofrinhos","coins"]].map(([k,l,i])=>`<button class="${S.tab===k?"on":""}" data-act="tab" data-v="${k}">${ic(i)}${l}</button>`).join("")}</nav>`;
   if(S.M&&S.tab==="desp")lista();
+  document.querySelectorAll(".gw").forEach(w=>mostrarDica(w,w.querySelector(".bc.on")));S.an=0;
   $(".chip.on")?.scrollIntoView({inline:"center",block:"nearest"});
 }
 
@@ -242,7 +263,7 @@ async function carregar(manual){
   S.loading=true;draw();
   try{S.M=modelo(await buscar(S.cfg));Store.set("fin_cache",S.M);if(manual)toast("Dados atualizados")}
   catch(e){toast(e.message,"err")}
-  finally{S.loading=false;draw()}
+  finally{S.loading=false;S.an=1;draw()}
 }
 
 /* ===== Tela de acesso, com validação ===== */
@@ -272,7 +293,7 @@ document.addEventListener("click",e=>{
     theme(){setTheme(document.documentElement.dataset.t==="dark"?"light":"dark");draw()},
     ref(){carregar(true)},
     mes(){S.mes=+v;Store.set("fin_mes",S.mes);draw()},
-    tab(){S.tab=v;draw()},
+    tab(){S.tab=v;S.an=1;draw()},
     sit(){S.sit=v;draw()},
     cf(){S.cf=S.cf===v?null:v;draw()},
     cfm(){S.cfm=S.cfm===+v?null:+v;draw()},
@@ -284,6 +305,9 @@ document.addEventListener("click",e=>{
   })[el.dataset.act]?.();
 });
 document.addEventListener("input",e=>{if(e.target.id==="q"){S.q=e.target.value;lista()}});
+
+document.addEventListener("pointerover",e=>{const g=e.target.closest?.(".bc");if(g)mostrarDica(g.closest(".gw"),g)});
+document.addEventListener("pointerout",e=>{const g=e.target.closest?.(".bc");if(g&&!g.contains(e.relatedTarget)){const w=g.closest(".gw");mostrarDica(w,w.querySelector(".bc.on"))}});
 
 /* ===== Início ===== */
 if(!S.cfg)setup();else{draw();carregar()}
