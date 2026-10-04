@@ -35,6 +35,7 @@ function doPost(e) {
     const ss = SpreadsheetApp.openById(ID_PLANILHA);
     if (p.acao === "despesa") return saida(lancarDespesa(ss, p));
     if (p.acao === "receita") return saida(lancarReceita(ss, p));
+    if (p.acao === "excluir") return saida(excluir(ss, p));
     return saida({ erro: "Ação inválida" });
   } catch (err) {
     return saida({ erro: "Falha ao gravar: " + err.message });
@@ -103,5 +104,45 @@ function lancarReceita(ss, p) {
   if (cel.getFormula()) return { erro: "Essa célula tem fórmula e não foi alterada" };
   const atual = Number(dados[l][c]) || 0;
   cel.setValue(p.modo === "somar" ? Math.round((atual + v) * 100) / 100 : v);
+  return { ok: true };
+}
+
+// ===== Exclusão: limpa o conteúdo (não remove a linha, para não deslocar nada na planilha) =====
+const nm = v => typeof v === "number" ? v : (parseFloat(String(v).replace(/[^\d,.-]/g, "").replace(/\./g, "").replace(",", ".")) || 0);
+
+function excluir(ss, p) {
+  if (p.aba === "receita") {
+    const aba = ss.getSheetByName("REMUNERAÇÃO"), dados = aba.getDataRange().getValues();
+    const h = dados.findIndex(r => up(r[1]) === "JANEIRO");
+    const c = h < 0 ? -1 : dados[h].findIndex(x => up(x) === up(p.mes));
+    const l = dados.findIndex((r, i) => i > h && up(r[0]) === up(p.evento));
+    if (c < 1 || l < 0) return { erro: "Evento ou mês não encontrado" };
+    if (Math.abs(nm(dados[l][c]) - Number(p.esperado)) > 0.005) return { erro: "A planilha mudou. Atualize o app e tente de novo." };
+    const cel = aba.getRange(l + 1, c + 1);
+    if (cel.getFormula()) return { erro: "Essa célula tem fórmula. Apague direto na planilha." };
+    cel.clearContent();
+    return { ok: true };
+  }
+  const desp = p.aba === "despesa";
+  if (!desp && p.aba !== "cofrinho") return { erro: "Tipo inválido" };
+  const aba = ss.getSheetByName(desp ? "DESPESAS GERAIS" : "COFRINHOS"), dados = aba.getDataRange().getValues();
+  const chave = desp ? ["VALOR", "GRUPO"] : ["VALOR", "COFRINHO"];
+  const h = dados.findIndex(r => { const c = r.map(up); return chave.every(k => c.includes(k)); });
+  const linha = Number(p.linha);
+  if (h < 0 || !(linha > h + 1 && linha <= dados.length)) return { erro: "Linha inválida" };
+  const cab = dados[h].map(up), r = dados[linha - 1], col = n => cab.indexOf(n), e = p.esperado || {};
+  // confere se a linha ainda é o mesmo lançamento que o app mostrou
+  const confere = Math.abs(nm(r[col("VALOR")]) - Number(e.valor)) < 0.005 &&
+    (desp ? up(r[col("GRUPO")]) === up(e.grupo) && up(r[col("DESCRICAO")]) === up(e.desc)
+          : up(r[col("COFRINHO")]) === up(e.nome));
+  if (!confere) return { erro: "A planilha mudou. Atualize o app e tente de novo." };
+  if (aba.getRange(linha, col("VALOR") + 1).getFormula()) return { erro: "O valor é uma fórmula. Apague direto na planilha." };
+  // despesa: apaga a linha toda; cofrinho: mantém mês e nome do cofrinho e limpa valor, situação e obs.
+  const cols = desp ? ["MES FATURA", "FECHAMENTO DA FATURA", "DATA DA COMPRA", "TIPO DE PAGAMENTO", "GRUPO", "DESCRICAO", "VALOR", "SITUACAO"] : ["VALOR", "SITUACAO", "OBS."];
+  cols.forEach(n => {
+    if (col(n) < 0) return;
+    const cel = aba.getRange(linha, col(n) + 1);
+    if (!cel.getFormula()) cel.clearContent();
+  });
   return { ok: true };
 }
