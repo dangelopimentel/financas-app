@@ -68,6 +68,12 @@ label{display:block;font-size:13px;margin-bottom:14px;color:var(--mut)}
 em{color:var(--bad);font-style:normal;font-size:12px;display:block}
 .btn{width:100%;padding:13px;border:0;border-radius:12px;background:var(--pri);color:#fff;font-weight:600;font-size:15px;font-family:inherit;cursor:pointer;transition:transform .1s}.btn:disabled{opacity:.6}
 [data-t=dark] .chip.on,[data-t=dark] .btn,[data-t=dark] .logo{color:#0a111f}
+/* ===== Gráficos e cofrinhos ===== */
+.gf{width:100%;height:auto;display:block}.gf text{font-size:9px;fill:var(--mut)}
+.bc{cursor:pointer;opacity:.5;transition:opacity .2s}.bc.on,.bc:hover{opacity:1}.bc.on text{fill:var(--tx);font-weight:700}
+.dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px}
+.cf{padding:0}.cfh{display:flex;justify-content:space-between;align-items:center;gap:12px;width:100%;padding:14px 16px;border:0;background:none;color:var(--tx);font:inherit;text-align:left;cursor:pointer}
+.cf>:not(.cfh){margin-left:16px;margin-right:16px}.cf>:last-child{margin-bottom:14px}.chip:disabled{opacity:.35}
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
 </head>
@@ -140,16 +146,20 @@ function modelo(d){
   // Cofrinhos
   const C=linhas(d["COFRINHOS"]),ci=achar(C,"COFRINHO","VALOR");let cof=[];
   if(ci>=0){const h=C[ci].map(up),i=n=>h.indexOf(n);
-    cof=C.slice(ci+1).filter(r=>num(r[i("VALOR")])>0).map(r=>({mes:up(r[0]),nome:r[i("COFRINHO")]||"Outros",valor:num(r[i("VALOR")])}));}
-  // Receita: linha de totais fica logo acima da linha com os nomes dos meses
-  const R=linhas(d["REMUNERAÇÃO"]),ri=R.findIndex(r=>up(r[1])==="JANEIRO"),rec=Array(12).fill(null);
-  if(ri>0)MESES.forEach((m,k)=>{const c=R[ri].findIndex(x=>up(x)===up(m));if(c>0&&R[ri-1][c]!=="")rec[k]=num(R[ri-1][c])});
-  return{desp,cof,rec,ts:Date.now()};
+    cof=C.slice(ci+1).filter(r=>num(r[i("VALOR")])>0).map(r=>({mes:up(r[0]),nome:r[i("COFRINHO")]||"Outros",valor:num(r[i("VALOR")]),sit:String(r[i("SITUACAO")]||"").trim(),obs:String(r[i("OBS.")]||"").trim()}));}
+  // Remuneração: linhas lidas pelo nome do evento, colunas pelo nome do mês
+  const GB=["ADIANTAMENTO","SALARIO","ALIMENTACAO","VALE ALIMENTACAO","EXTRA","FERIAS","DECIMO TERCEIRO","PL"];
+  const R=linhas(d["REMUNERAÇÃO"]),ri=R.findIndex(r=>up(r[1])==="JANEIRO"),rem={bruta:Array(12).fill(0),desc:Array(12).fill(0),inv:Array(12).fill(0),itens:{}};
+  if(ri>=0){const col=MESES.map(m=>R[ri].findIndex(x=>up(x)===up(m)));
+    R.slice(ri+1).forEach(r=>{const n=up(r[0]);if(!n)return;
+      const g=GB.includes(n)?"bruta":/^(INSS|IR$|IR |CONT)/.test(n)?"desc":n.startsWith("INVEST")?"inv":null;if(!g)return;
+      col.forEach((c,k)=>{const v=c>0?num(r[c]):0;rem[g][k]+=v;if(g==="bruta"){rem.itens[n]=rem.itens[n]||Array(12).fill(0);rem.itens[n][k]+=v}})})}
+  return{desp,cof,rem,ts:Date.now()};
 }
 
 /* ===== Estado ===== */
-const S={cfg:Store.get("fin_cfg"),M:Store.get("fin_cache"),tab:"resumo",mes:Store.get("fin_mes")??new Date().getMonth(),q:"",sit:"todas",loading:false,sair:false};
-if(S.M&&!S.M.desp)S.M=null;
+const S={cfg:Store.get("fin_cfg"),M:Store.get("fin_cache"),tab:"resumo",mes:Store.get("fin_mes")??new Date().getMonth(),q:"",sit:"todas",cf:null,cfm:null,loading:false,sair:false};
+if(S.M&&!S.M.rem)S.M=null; // cache antigo sem o novo formato
 
 /* ===== Componentes de visualização ===== */
 const por=(a,f)=>{const m={};a.forEach(x=>{const k=f(x)||"Outros";m[k]=(m[k]||0)+x.valor});return Object.entries(m).sort((a,b)=>b[1]-a[1])};
@@ -158,15 +168,33 @@ const pago=x=>up(x.sit)==="PAGO";
 const bars=(l,tot)=>l.map(([k,v])=>`<div class="br"><div class="brt"><span>${esc(k)}</span><b>${brl(v)}</b></div><div class="trk"><i style="width:${tot?Math.max(2,v/tot*100):0}%"></i></div></div>`).join("")||'<p class="mut">Sem lançamentos neste mês.</p>';
 const stat=(t,v,i,c)=>`<div class="card stat"><span class="${c}">${ic(i)}</span><small>${t}</small><b>${v}</b></div>`;
 
+const pc=(a,b)=>b?(a/b*100).toFixed(1).replace(".",",")+"%":"—";
+const rm=k=>{const R=S.M.rem,b=R.bruta[k],d=R.desc[k];return{b,d,l:b-d}}; // bruta, descontos, líquida
+/* Gráfico de barras empilhadas em SVG. segs[k]=[[valor,"--cor"],...]; tocar numa barra dispara a ação "act" com o índice do mês */
+function grafico(segs,sel,act="mes"){
+  const mx=Math.max(1,...segs.map(s=>s.reduce((a,x)=>a+x[0],0)));
+  return `<svg viewBox="0 0 360 170" class="gf" role="img" aria-label="Gráfico por mês">`+segs.map((sg,k)=>{let y=140;
+    return `<g data-act="${act}" data-v="${k}" class="bc ${k===sel?"on":""}"><rect x="${k*30}" y="0" width="30" height="170" fill="transparent"/>`+sg.map(([v,c])=>{const h=v/mx*120;y-=h;return `<rect x="${k*30+6}" y="${y}" width="18" height="${h}" rx="3" fill="var(${c})"/>`}).join("")+`<text x="${k*30+15}" y="160" text-anchor="middle">${MESES[k].slice(0,3)}</text></g>`}).join("")+"</svg>";
+}
 function vResumo(){
-  const a=S.M.desp.filter(x=>x.mes===up(MESES[S.mes])),tot=soma(a),pg=soma(a.filter(pago)),rec=S.M.rec[S.mes],saldo=rec==null?null:rec-tot,uso=rec?tot/rec*100:0;
-  return `<div class="card hero"><small>Saldo de ${MESES[S.mes]}</small><b class="${saldo!=null&&saldo<0?"bad":""}">${saldo==null?"—":brl(saldo)}</b>
+  const a=S.M.desp.filter(x=>x.mes===up(MESES[S.mes])),tot=soma(a),pg=soma(a.filter(pago)),{b,d,l}=rm(S.mes),saldo=l-tot,uso=l?tot/l*100:0;
+  return `<div class="card hero"><small>Saldo de ${MESES[S.mes]}</small><b class="${b&&saldo<0?"bad":""}">${b?brl(saldo):"—"}</b>
   <div class="trk lg"><i class="${uso>100?"badc":""}" style="width:${Math.min(uso,100)}%"></i></div>
-  <div class="split"><span>${rec?Math.round(uso)+"% da receita comprometida":"Receita do mês não encontrada"}</span></div></div>
-  <section class="grid">${stat("Receita",rec==null?"—":brl(rec),"up","ok")}${stat("Despesas",brl(tot),"receipt","bad")}</section>
+  <div class="split"><span>${b?Math.round(uso)+"% da receita líquida comprometida":"Receita do mês não encontrada"}</span></div></div>
+  <section class="grid">${stat("Receita bruta",brl(b),"up","ok")}${stat("Descontos",brl(d),"out","bad")}${stat("Receita líquida",brl(l),"up","ok")}${stat("Despesas",brl(tot),"receipt","bad")}</section>
   <div class="card"><h3>Situação das despesas</h3><div class="trk lg"><i class="okc" style="width:${tot?pg/tot*100:0}%"></i></div><div class="split"><span>Pago <b>${brl(pg)}</b></span><span>A pagar <b>${brl(tot-pg)}</b></span></div></div>
   <div class="card"><h3>Gastos por grupo</h3>${bars(por(a,x=>x.grupo).slice(0,8),tot)}</div>
   <div class="card"><h3>Forma de pagamento</h3>${bars(por(a,x=>x.tipo),tot)}</div>`;
+}
+function vRec(){
+  const k=S.mes,R=S.M.rem,{b,d,l}=rm(k),sm=a=>a.reduce((x,y)=>x+y,0),inv=R.inv,bb=sm(R.bruta),dd=sm(R.desc);
+  const it=Object.entries(R.itens).map(([n,v])=>[n.charAt(0)+n.slice(1).toLowerCase(),v[k]]).filter(x=>x[1]>0).sort((x,y)=>y[1]-x[1]);
+  return `<section class="grid">${stat("Receita bruta",brl(b),"up","ok")}${stat("Descontos (INSS, IR, Cont.)",brl(d),"out","bad")}</section>
+  <div class="card"><h3>Receita por mês</h3>${grafico(MESES.map((_,i)=>[[R.bruta[i]-R.desc[i],"--pri"],[R.desc[i],"--bad"]]),k)}
+  <div class="split"><span><i class="dot" style="background:var(--pri)"></i>Líquida <b>${brl(l)}</b></span><span><i class="dot" style="background:var(--bad)"></i>Descontos <b>${brl(d)}</b></span></div><p class="mut cnt">Toque em um mês para ver os detalhes.</p></div>
+  <div class="card"><h3>Receita bruta de ${MESES[k]} por origem</h3>${bars(it,b)}</div>
+  <div class="card"><h3>Total no ano</h3><div class="li"><span>Receita bruta</span><b>${brl(bb)}</b></div><div class="li"><span>Descontos</span><b class="bad">${brl(dd)}</b></div><div class="li"><span>Receita líquida</span><b class="ok">${brl(bb-dd)}</b></div></div>
+  <div class="card"><h3>Investimento pessoal (controle de depósitos)</h3>${sm(inv)?grafico(inv.map(v=>[[v,"--ok"]]),k)+`<div class="split"><span>${MESES[k]} <b>${brl(inv[k])}</b></span><span>No ano <b>${brl(sm(inv))}</b></span></div><div class="split"><span>${pc(inv[k],l)} da receita líquida do mês</span><span>${pc(sm(inv),bb-dd)} no ano</span></div>`:'<p class="mut">Nenhum valor lançado ainda.</p>'}</div>`;
 }
 function vDesp(){
   return `<div class="srch">${ic("search",18)}<input id="q" type="search" placeholder="Buscar por descrição ou grupo" value="${esc(S.q)}" autocomplete="off"></div>
@@ -178,10 +206,16 @@ function lista(){ // redesenha só a lista, para a busca não perder o foco
   $("#lst").innerHTML=`<p class="mut cnt">${a.length} lançamento(s) · ${brl(soma(a))}</p><div class="card">`+(a.slice(0,150).map(x=>`<div class="li"><div><b>${esc(x.desc||x.grupo)}</b><small>${esc(x.grupo)} · ${esc(x.tipo)}${x.data?" · "+esc(x.data):""}</small></div><div class="r"><b>${brl(x.valor)}</b><span class="bd ${pago(x)?"ok":"wn"}">${pago(x)?"Pago":"A pagar"}</span></div></div>`).join("")||'<p class="mut">Nada encontrado.</p>')+"</div>";
 }
 function vCof(){
-  const a=S.M.cof.filter(x=>x.mes===up(MESES[S.mes])),ano=por(S.M.cof,x=>x.nome);
-  return `<section class="grid">${stat("Depositado em "+MESES[S.mes],brl(soma(a)),"coins","ok")}${stat("Total no ano",brl(soma(S.M.cof)),"up","ok")}</section>
-  <div class="card"><h3>Depósitos do mês</h3>${a.map(x=>`<div class="li"><b>${esc(x.nome)}</b><b>${brl(x.valor)}</b></div>`).join("")||'<p class="mut">Nenhum depósito neste mês.</p>'}</div>
-  <div class="card"><h3>Acumulado no ano</h3>${bars(ano,soma(S.M.cof))}</div>`;
+  const C=S.M.cof,tot=soma(C),nomes=por(C,x=>x.nome),meses=new Set(C.map(x=>x.mes)).size,mk=i=>up(MESES[i]);
+  const doMes=S.cfm==null?"":`<div class="card"><h3>Depósitos de ${MESES[S.cfm]}</h3>${por(C.filter(x=>x.mes===mk(S.cfm)),x=>x.nome).map(([n,v])=>`<div class="li"><span>${esc(n)}</span><b>${brl(v)}</b></div>`).join("")||'<p class="mut">Nenhum depósito neste mês.</p>'}</div>`;
+  const lista=nomes.map(([n,v])=>{
+    const mine=C.filter(x=>x.nome===n),abre=S.cf===n;
+    const chips=MESES.map((m,i)=>`<button class="chip ${S.cfm===i?"on":""}" data-act="cfm" data-v="${i}" ${mine.some(x=>x.mes===mk(i))?"":"disabled"}>${m.slice(0,3)}</button>`).join("");
+    const det=S.cfm==null?'<p class="mut cnt">Toque em um mês para ver os detalhes.</p>':mine.filter(x=>x.mes===mk(S.cfm)).map(x=>`<div class="li"><div><b>${MESES[S.cfm]}</b><small>${esc(x.sit||"Sem situação")}${x.obs?" · "+esc(x.obs):""}</small></div><div class="r"><b>${brl(x.valor)}</b><small>${pc(x.valor,v)} do cofrinho</small></div></div>`).join("")||'<p class="mut cnt">Sem depósito neste mês.</p>';
+    return `<div class="card cf"><button class="cfh" data-act="cf" data-v="${esc(n)}" aria-expanded="${abre}"><div><b>${esc(n)}</b><small>${pc(v,tot)} do total · ${mine.length} depósito(s)</small></div><b>${brl(v)}</b></button>${abre?`<div class="chips">${chips}</div>${det}`:""}</div>`}).join("");
+  return `<section class="grid">${stat("Total no ano",brl(tot),"coins","ok")}${stat("Média por mês",brl(meses?tot/meses:0),"up","ok")}${stat("Cofrinhos",nomes.length,"dash","ok")}${stat("Maior cofrinho",nomes[0]?esc(nomes[0][0]):"—","receipt","ok")}</section>
+  <div class="card"><h3>Depósitos por mês</h3>${grafico(MESES.map((m,i)=>[[soma(C.filter(x=>x.mes===mk(i))),"--pri"]]),S.cfm,"cfm")}<p class="mut cnt">Toque em um mês para ver os depósitos dele.</p></div>${doMes}
+  <h3>Cofrinhos — toque no nome para ver os meses</h3>${lista||'<p class="mut">Nenhum depósito encontrado.</p>'}`;
 }
 
 /* ===== Estrutura da tela ===== */
@@ -190,14 +224,14 @@ function draw(){
   const hora=S.M?.ts?"Atualizado às "+new Date(S.M.ts).toLocaleTimeString("pt-BR",{hour:"2-digit",minute:"2-digit"}):"Carregando…";
   let corpo;
   if(!S.M)corpo=S.loading?'<div class="sk"></div><div class="sk"></div><div class="sk"></div>':`<div class="vazio card"><p>Não foi possível carregar os dados.</p><button class="btn" data-act="ref">Tentar novamente</button></div>`;
-  else corpo={resumo:vResumo,desp:vDesp,cof:vCof}[S.tab]();
+  else corpo={resumo:vResumo,rec:vRec,desp:vDesp,cof:vCof}[S.tab]();
   $("#app").innerHTML=`<header class="hd"><div><h1>Finanças</h1><small>${hora}</small></div><div class="acts">
   <button class="ib" data-act="theme" aria-label="Alternar tema">${ic(dark?"sun":"moon")}</button>
   <button class="ib ${S.loading?"spin":""}" data-act="ref" aria-label="Atualizar dados">${ic("refresh")}</button>
   <button class="ib" data-act="sair" aria-label="Trocar acesso">${ic("out")}</button></div></header>
-  <div class="chips">${MESES.map((m,i)=>`<button class="chip ${i===S.mes?"on":""}" data-act="mes" data-v="${i}">${m.slice(0,3)}</button>`).join("")}</div>
+  ${S.tab==="cof"?"":`<div class="chips">${MESES.map((m,i)=>`<button class="chip ${i===S.mes?"on":""}" data-act="mes" data-v="${i}">${m.slice(0,3)}</button>`).join("")}</div>`}
   <main class="fade">${corpo}</main>
-  <nav class="nav">${[["resumo","Resumo","dash"],["desp","Despesas","receipt"],["cof","Cofrinhos","coins"]].map(([k,l,i])=>`<button class="${S.tab===k?"on":""}" data-act="tab" data-v="${k}">${ic(i)}${l}</button>`).join("")}</nav>`;
+  <nav class="nav">${[["resumo","Resumo","dash"],["rec","Receitas","up"],["desp","Despesas","receipt"],["cof","Cofrinhos","coins"]].map(([k,l,i])=>`<button class="${S.tab===k?"on":""}" data-act="tab" data-v="${k}">${ic(i)}${l}</button>`).join("")}</nav>`;
   if(S.M&&S.tab==="desp")lista();
   $(".chip.on")?.scrollIntoView({inline:"center",block:"nearest"});
 }
@@ -240,6 +274,8 @@ document.addEventListener("click",e=>{
     mes(){S.mes=+v;Store.set("fin_mes",S.mes);draw()},
     tab(){S.tab=v;draw()},
     sit(){S.sit=v;draw()},
+    cf(){S.cf=S.cf===v?null:v;draw()},
+    cfm(){S.cfm=S.cfm===+v?null:+v;draw()},
     eye(){const i=$("#t");i.type=i.type==="password"?"text":"password"},
     sair(){ // confirmação em dois toques, sem janela amadora
       if(!S.sair){S.sair=true;toast("Toque de novo para trocar o acesso","err");setTimeout(()=>S.sair=false,4000);return}
