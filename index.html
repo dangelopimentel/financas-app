@@ -84,6 +84,10 @@ em{color:var(--bad);font-style:normal;font-size:12px;display:block}
 .sheet h2{font-size:18px;margin:0 0 14px;display:flex;justify-content:space-between;align-items:center}
 .fm input,.fm select{width:100%;margin-top:6px;padding:12px;border-radius:12px;border:1px solid var(--bd);background:var(--bg);color:var(--tx);font:inherit}
 .fm select:disabled{opacity:.5}.fm em{margin:-8px 0 12px}.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+/* ===== Foto de perfil ===== */
+.hl{display:flex;align-items:center;gap:12px}
+.av{width:46px;height:46px;border-radius:50%;border:2px solid var(--pri);padding:0;overflow:hidden;background:var(--card);color:var(--mut);display:grid;place-items:center;cursor:pointer;flex:none;transition:transform .1s}
+.av:active{transform:scale(.94)}.av img{width:100%;height:100%;object-fit:cover;display:block}
 /* ===== Exclusão ===== */
 .li .ib{width:36px;height:36px;color:var(--mut);align-self:center;flex:none}.li .ib:hover{color:var(--bad)}
 .btn.dg{background:var(--bad);color:#fff;margin-bottom:8px}.btn.sc{background:var(--bd);color:var(--tx)}
@@ -91,7 +95,7 @@ em{color:var(--bad);font-style:normal;font-size:12px;display:block}
 </style>
 </head>
 <body>
-<div id="app"></div><div id="toasts" aria-live="polite"></div><div id="sheet"></div>
+<div id="app"></div><div id="toasts" aria-live="polite"></div><div id="sheet"></div><input type="file" id="fi" accept="image/*" hidden>
 <script>
 "use strict";
 /* ===== Utilidades ===== */
@@ -114,7 +118,7 @@ up:'<path d="m22 7-8.5 8.5-5-5L2 17"/><path d="M16 7h6v6"/>',
 eye:'<path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/>',
 check:'<circle cx="12" cy="12" r="10"/><path d="m9 12 2 2 4-4"/>',
 alert:'<circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/>',
-x:'<path d="M18 6 6 18M6 6l12 12"/>',trash:'<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',plus:'<path d="M5 12h14M12 5v14"/>'};
+x:'<path d="M18 6 6 18M6 6l12 12"/>',user:'<path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',trash:'<path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>',plus:'<path d="M5 12h14M12 5v14"/>'};
 const ic=(n,s=20)=>`<svg viewBox="0 0 24 24" width="${s}" height="${s}" aria-hidden="true">${P[n]}</svg>`;
 
 /* ===== Persistência (localStorage estruturado, com tratamento de erro) ===== */
@@ -179,7 +183,7 @@ function modelo(d){
 }
 
 /* ===== Estado ===== */
-const S={cfg:Store.get("fin_cfg"),M:Store.get("fin_cache"),tab:"resumo",mes:Store.get("fin_mes")??new Date().getMonth(),q:"",sit:"todas",cf:null,cfm:null,an:1,form:null,f:{},loading:false,sair:false};
+const S={cfg:Store.get("fin_cfg"),M:Store.get("fin_cache"),tab:"resumo",mes:Store.get("fin_mes")??new Date().getMonth(),q:"",sit:"todas",cf:null,cfm:null,an:1,form:null,f:{},foto:(v=>/^data:image\/jpeg;base64,/.test(v)?v:null)(Store.get("fin_foto")),loading:false,sair:false};
 if(S.M&&S.M.v!==2)S.M=null; // cache antigo sem o novo formato
 
 /* ===== Componentes de visualização ===== */
@@ -263,7 +267,7 @@ function draw(){
   let corpo;
   if(!S.M)corpo=S.loading?'<div class="sk"></div><div class="sk"></div><div class="sk"></div>':`<div class="vazio card"><p>Não foi possível carregar os dados.</p><button class="btn" data-act="ref">Tentar novamente</button></div>`;
   else corpo={resumo:vResumo,rec:vRec,desp:vDesp,cof:vCof}[S.tab]();
-  $("#app").innerHTML=`<header class="hd"><div><h1>Finanças</h1><small>${hora}</small></div><div class="acts">
+  $("#app").innerHTML=`<header class="hd"><div class="hl"><button class="av" data-act="foto" aria-label="Foto de perfil">${S.foto?`<img src="${S.foto}" alt="">`:ic("user",22)}</button><div><h1>Finanças</h1><small>${hora}</small></div></div><div class="acts">
   <button class="ib" data-act="theme" aria-label="Alternar tema">${ic(dark?"sun":"moon")}</button>
   <button class="ib ${S.loading?"spin":""}" data-act="ref" aria-label="Atualizar dados">${ic("refresh")}</button>
   <button class="ib" data-act="sair" aria-label="Trocar acesso">${ic("out")}</button></div></header>
@@ -290,6 +294,7 @@ const dataBR=d=>d?d.split("-").reverse().join("/"):"";
 const RV=/^(\d{1,3}(\.\d{3})+|\d+)(,\d{1,2})?$/; // 1.234,56 ou 12,5 (ponto decimal é recusado)
 function formHTML(){
   const f=S.f,b=S.M.base,fim=`<button class="ib" type="button" data-act="fechar" aria-label="Fechar">${ic("x")}</button>`;
+  if(S.form==="foto")return `<h2>Foto de perfil${fim}</h2><button class="btn" data-act="trocar" style="margin-bottom:8px">Trocar foto</button><button class="btn dg" data-act="remover">Remover foto</button>`;
   if(S.form==="del")return `<h2>Excluir lançamento${fim}</h2><p><b>${esc(S.del.txt)}</b></p><p class="mut cnt">O lançamento será apagado da planilha. Dá para recuperar em Arquivo → Histórico de versões do Google Planilhas.</p><button class="btn dg" data-act="excl">Excluir</button><button class="btn sc" data-act="fechar">Cancelar</button>`;
   if(S.form==="desp"){const ds=b.grupos[f.grupo]||[]; // só as descrições do grupo escolhido
     return `<h2>Nova despesa${fim}</h2><form class="fm" id="ff" novalidate>
@@ -368,6 +373,9 @@ document.addEventListener("click",e=>{
     sit(){S.sit=v;draw()},
     novo(){const b=S.M.base;S.form=v;S.f=v==="desp"?{mes:MESES[S.mes],data:new Date(Date.now()-new Date().getTimezoneOffset()*6e4).toISOString().slice(0,10),fech:"",tipo:"",grupo:"",desc:"",valor:"",sit:b.sits.find(x=>up(x)==="A PAGAR")||b.sits[0]}:{evento:"",mes:MESES[S.mes],valor:"",modo:"subst"};sheet()},
     fechar(){S.form=null;sheet()},
+    foto(){if(S.foto){S.form="foto";sheet()}else $("#fi").click()},
+    trocar(){S.form=null;sheet();$("#fi").click()},
+    remover(){Store.del("fin_foto");S.foto=null;S.form=null;sheet();draw();toast("Foto removida")},
     pedir(){ // monta o pedido de exclusão; a confirmação vem na folha inferior
       const[t,a,b]=v.split("|"),M=S.M;let txt,corpo;
       if(t==="d"){const x=M.desp.find(y=>y.row==a);if(!x)return;txt=`${x.desc||x.grupo} · ${brl(x.valor)} · ${cap(x.mes)}`;corpo={acao:"excluir",aba:"despesa",linha:x.row,esperado:{valor:x.valor,grupo:x.grupo,desc:x.desc}}}
@@ -391,6 +399,17 @@ document.addEventListener("input",e=>{if(e.target.id==="q"){S.q=e.target.value;l
 
 document.addEventListener("pointerover",e=>{const g=e.target.closest?.(".bc");if(g)mostrarDica(g.closest(".gw"),g)});
 document.addEventListener("pointerout",e=>{const g=e.target.closest?.(".bc");if(g&&!g.contains(e.relatedTarget)){const w=g.closest(".gw");mostrarDica(w,w.querySelector(".bc.on"))}});
+
+$("#fi").addEventListener("change",e=>{
+  const f=e.target.files[0];e.target.value="";if(!f)return;
+  const img=new Image(),u=URL.createObjectURL(f);
+  img.onload=()=>{const z=160,c=document.createElement("canvas"),m=Math.min(img.width,img.height);c.width=c.height=z;
+    c.getContext("2d").drawImage(img,(img.width-m)/2,(img.height-m)*.25,m,m,0,0,z,z);URL.revokeObjectURL(u);
+    S.foto=c.toDataURL("image/jpeg",.85);
+    if(Store.set("fin_foto",S.foto))toast("Foto atualizada");else toast("Não foi possível salvar a foto.","err");
+    draw()};
+  img.onerror=()=>{URL.revokeObjectURL(u);toast("Imagem não suportada. Escolha um JPG ou PNG.","err")};
+  img.src=u});
 
 /* ===== Início ===== */
 if(!S.cfg)setup();else{draw();carregar()}
